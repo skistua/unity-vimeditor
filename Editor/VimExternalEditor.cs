@@ -32,22 +32,6 @@ namespace Vim.Editor
 
         static CodeEditor.Installation[] BuildInstalls()
         {
-            var installs = new List<CodeEditor.Installation>(){
-                // Unity will automatically filter out paths that don't
-                // exist on disk. Use some standard paths and search in
-                // PATH.
-                new CodeEditor.Installation{
-                    Name = "MacVim",
-                    // Installed with brew
-                    Path = "/usr/local/bin/mvim",
-                },
-                new CodeEditor.Installation{
-                    Name = "Vim",
-                    // Linux
-                    Path = "/usr/share/vim/gvim",
-                },
-            };
-
             var all_installs = Environment.GetEnvironmentVariable("PATH")
                 .Split(Path.PathSeparator)
                 // We could limit our search to folders named vim, but that won't
@@ -70,18 +54,13 @@ namespace Vim.Editor
 #if UNITY_EDITOR_WIN
             // batch file is preferred because if user set it up, they
             // probably want to use it.
-            "gvim.bat",
+            "nvr.exe",
             // note: scoop shim opens a command prompt in background,
             // install batch file to prevent that.
-            "gvim.exe",
 #elif UNITY_EDITOR_OSX
-            // Are there alternatives?
-            "mvim",
-            // installed with gtk?
-            "gvim",
+            "nvr",
 #else
-            // Linux
-            "gvim",
+            "nvr"
 #endif
         };
 
@@ -93,7 +72,7 @@ namespace Vim.Editor
                     .Select(exe => Path.Combine(folder, exe))
                     .Where(path => File.Exists(path))
                     .Select(path => new CodeEditor.Installation{
-                        Name = $"Vim ({Path.GetFileName(path)})",
+                        Name = $"{Path.GetFileName(path)}",
                         Path = path,
                     });
             }
@@ -119,7 +98,7 @@ namespace Vim.Editor
         const string k_editorpath_key = "vimcode_editorpath";
         static string GetVimEditorPath()
         {
-            return EditorPrefs.GetString(k_editorpath_key, "/usr/local/bin/mvim");
+            return EditorPrefs.GetString(k_editorpath_key, "/usr/local/bin/nvr");
         }
 
         const string k_servername_key = "vimcode_servername";
@@ -284,6 +263,7 @@ namespace Vim.Editor
         /// The external code editor needs to handle the request to open a file.
         public bool OpenProject(string filePath, int line, int column)
         {
+            Debug.Log($"Open project filePath = {filePath}, Line[{line}] column[{column}]");
             if (!IsCodeAsset(filePath))
             {
                 return false;
@@ -393,9 +373,10 @@ namespace Vim.Editor
                     break;
             }
 
-            start_info.Arguments = $"--servername {GetServerName()} --remote-silent +\"call cursor({line},{column})\" {GetExtraCommands()} {path} \"{file}\"";
+            //start_info.Arguments = $"--servername {GetServerName()} --remote-silent +\"call cursor({line},{column})\" {GetExtraCommands()} {path} \"{file}\"";
+            start_info.Arguments = $"--remote-silent +\"call cursor({line},{column})\" {GetExtraCommands()} {path} \"{file}\"";
 
-            //~ Debug.Log($"[VimExternalEditor] Launching {start_info.FileName} {start_info.Arguments}");
+            Debug.Log($"[VimExternalEditor] Launching {start_info.FileName} {start_info.Arguments}");
 
             return Process.Start(start_info);
         }
