@@ -25,9 +25,12 @@ namespace Vim.Editor
             CodeEditor.Register(editor);
         }
 
+        private IGenerator m_ProjectGeneration;
+
         VimExternalEditor()
         {
             m_Installations = BuildInstalls();
+            m_ProjectGeneration = new ProjectGeneration(Directory.GetParent(Application.dataPath).FullName);
         }
 
         static CodeEditor.Installation[] BuildInstalls()
@@ -107,11 +110,11 @@ namespace Vim.Editor
             return EditorPrefs.GetString(k_servername_key, "Unity");
         }
 
-        const string k_force_foreground_key = "vimcode_force_foreground";
-        static bool ShouldForceToForeground()
-        {
-            return EditorPrefs.GetBool(k_force_foreground_key, false);
-        }
+        //const string k_force_foreground_key = "vimcode_force_foreground";
+        //static bool ShouldForceToForeground()
+        //{
+            //return EditorPrefs.GetBool(k_force_foreground_key, false);
+        //}
 
         const string k_gen_vs_sln_key = "vimcode_gen_vs_sln";
         static bool ShouldGenerateVisualStudioSln()
@@ -190,6 +193,20 @@ namespace Vim.Editor
                     EditorPrefs.DeleteKey(k_codeassets_key);
                 }
 
+                EditorGUILayout.LabelField("Generate .csproj files for:");
+                EditorGUI.indentLevel++;
+                SettingsButton(ProjectGenerationFlag.Embedded, "Embedded packages", "");
+                SettingsButton(ProjectGenerationFlag.Local, "Local packages", "");
+                SettingsButton(ProjectGenerationFlag.Registry, "Registry packages", "");
+                SettingsButton(ProjectGenerationFlag.Git, "Git packages", "");
+                SettingsButton(ProjectGenerationFlag.BuiltIn, "Built-in packages", "");
+    #if UNITY_2019_3_OR_NEWER
+                SettingsButton(ProjectGenerationFlag.LocalTarBall, "Local tarball", "");
+    #endif
+                SettingsButton(ProjectGenerationFlag.Unknown, "Packages from unknown sources", "");
+                RegenerateProjectFiles();
+                EditorGUI.indentLevel--;
+
                 var prev_should_gen_vs_sln = ShouldGenerateVisualStudioSln();
                 var new_should_gen_vs_sln = EditorGUILayout.Toggle(new GUIContent(
                             "Generate Visual Studio Solution",
@@ -200,15 +217,15 @@ namespace Vim.Editor
                     EditorPrefs.SetBool(k_gen_vs_sln_key, new_should_gen_vs_sln);
                 }
 
-                var prev_should_force_fg = ShouldForceToForeground();
-                var new_should_force_fg = EditorGUILayout.Toggle(new GUIContent(
-                            "Force foreground",
-                            "Tell vim to put itself in the foreground when opening a file. Don't enable unless Vim's failing to foreground itself."),
-                        prev_should_force_fg);
-                if (new_should_force_fg != prev_should_force_fg)
-                {
-                    EditorPrefs.SetBool(k_force_foreground_key, new_should_force_fg);
-                }
+                //var prev_should_force_fg = ShouldForceToForeground();
+                //var new_should_force_fg = EditorGUILayout.Toggle(new GUIContent(
+                            //"Force foreground",
+                            //"Tell vim to put itself in the foreground when opening a file. Don't enable unless Vim's failing to foreground itself."),
+                        //prev_should_force_fg);
+                //if (new_should_force_fg != prev_should_force_fg)
+                //{
+                    //EditorPrefs.SetBool(k_force_foreground_key, new_should_force_fg);
+                //}
 
                 var prev_servername = GetServerName();
                 var new_servername = EditorGUILayout.TextField(new GUIContent(
@@ -252,6 +269,26 @@ namespace Vim.Editor
 
         }
 
+        void SettingsButton(ProjectGenerationFlag preference, string guiMessage, string toolTip)
+        {
+            var prevValue = m_ProjectGeneration.AssemblyNameProvider.ProjectGenerationFlag.HasFlag(preference);
+            var newValue = EditorGUILayout.Toggle(new GUIContent(guiMessage, toolTip), prevValue);
+            if (newValue != prevValue)
+            {
+                m_ProjectGeneration.AssemblyNameProvider.ToggleProjectGeneration(preference);
+            }
+        }
+
+        void RegenerateProjectFiles()
+        {
+            var rect = EditorGUI.IndentedRect(EditorGUILayout.GetControlRect(new GUILayoutOption[] { }));
+            rect.width = 252;
+            if (GUI.Button(rect, "Regenerate project files"))
+            {
+                m_ProjectGeneration.Sync();
+            }
+        }
+
 
         bool IsCodeAsset(string filePath)
         {
@@ -270,10 +307,10 @@ namespace Vim.Editor
             }
             //~ Debug.Log($"[VimExternalEditor] OpenProject: {filePath}:{line}");
             var p = LaunchProcess(filePath, line, column);
-            if (ShouldForceToForeground())
-            {
-                RequestForeground(p);
-            }
+            //if (ShouldForceToForeground())
+            //{
+                //RequestForeground(p);
+            //}
             // Don't wait for process to exit. It might be the first time we
             // launched vim and then it will not terminate until vim exits.
             return true;
@@ -287,11 +324,14 @@ namespace Vim.Editor
             //~ Debug.Log($"[VimExternalEditor] SyncAll ");
             if (ShouldGenerateVisualStudioSln())
             {
-                RegenerateVisualStudioSolution();
-                Debug.Log($"[VimExternalEditor] Regenerated Visual Studio solution");
+                //RegenerateVisualStudioSolution();
+                AssetDatabase.Refresh();
+                m_ProjectGeneration.Sync();
             }
+
         }
 
+        /*
         // Unlike 'Open C# Project', this only generates the sln (does not
         // update asset database or open any file).
         //
@@ -312,11 +352,13 @@ namespace Vim.Editor
 
 			synchronizer_sync_fn.Invoke(synchronizer_object, null);
         }
+        */
 
         /// When you change Assets in Unity, this method for the current chosen
         /// instance of IExternalCodeEditor parses the new and changed Assets.
         public void SyncIfNeeded(string[] addedFiles, string[] deletedFiles, string[] movedFiles, string[] movedFromFiles, string[] importedFiles)
         {
+            m_ProjectGeneration.SyncIfNeeded(addedFiles.Union(deletedFiles).Union(movedFiles).Union(movedFromFiles).ToList(), importedFiles);
             //~ Debug.Log($"[VimExternalEditor] SyncIfNeeded {addedFiles.Length}");
         }
 
@@ -373,10 +415,11 @@ namespace Vim.Editor
                     break;
             }
 
-            //start_info.Arguments = $"--servername {GetServerName()} --remote-silent +\"call cursor({line},{column})\" {GetExtraCommands()} {path} \"{file}\"";
-            start_info.Arguments = $"--remote-silent +\"call cursor({line},{column})\" {GetExtraCommands()} {path} \"{file}\"";
+            start_info.Arguments = $"--nostart --servername {GetServerName()} --remote-silent +\"call cursor({line},{column})\" {GetExtraCommands()} {path} \"{file}\"";
+            //start_info.Arguments = $"--remote-silent +\"call cursor({line},{column})\" {GetExtraCommands()} {path} \"{file}\"";
 
-            Debug.Log($"[VimExternalEditor] Launching {start_info.FileName} {start_info.Arguments}");
+            //Debug.Log($"[VimExternalEditor] Launching {start_info.FileName} {start_info.Arguments}");
+            Debug.Log($"[VimLaunchProcess] Path: {path} || file: {file}");
 
             return Process.Start(start_info);
         }
