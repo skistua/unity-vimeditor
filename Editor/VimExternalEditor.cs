@@ -300,7 +300,7 @@ namespace Vim.Editor
         /// The external code editor needs to handle the request to open a file.
         public bool OpenProject(string filePath, int line, int column)
         {
-            Debug.Log($"Open project filePath = {filePath}, Line[{line}] column[{column}]");
+            //Debug.Log($"Open project filePath = {filePath}, Line[{line}] column[{column}]");
             if (!IsCodeAsset(filePath))
             {
                 return false;
